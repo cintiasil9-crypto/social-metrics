@@ -36,7 +36,7 @@ def fetch_rows():
 
 
 # ------------------------------------------------
-# CALCULATE METRICS (REAL-TIME, EVENT-BASED)
+# CALCULATE METRICS
 # ------------------------------------------------
 
 def calculate_metrics():
@@ -59,29 +59,31 @@ def calculate_metrics():
 
         try:
             ts = float(r.get("timestamp"))
-
-            # Convert ms → seconds if needed
-            if ts > 9999999999:
-                ts = ts / 1000
-
         except:
             continue
 
-        age = now - ts
+        # Normalize timestamp (ms or sec)
+        if ts > 9999999999:  # milliseconds
+            ts = ts / 1000
 
-        # Spoke last 24 hours
+        # Handle clock drift / future timestamps safely
+        age = now - ts
+        if age < 0:
+            age = abs(age)
+
+        # SPOKE LAST 24 HOURS
         if age <= 86400:
             spoke_24h.add(uid)
 
-        # Live right now (last 60 seconds)
+        # LIVE RIGHT NOW (last 60 sec)
         if age <= 60:
             live_now.add(uid)
 
-        # Power users (20+ messages last hour)
+        # POWER USERS (20+ messages last hour)
         if age <= 3600:
             power_counter[uid] = power_counter.get(uid, 0) + 1
 
-    power_users = len([u for u, count in power_counter.items() if count >= 20])
+    power_users = len([u for u, c in power_counter.items() if c >= 20])
 
     return {
         "total_registered": len(total_registered),
@@ -93,7 +95,7 @@ def calculate_metrics():
 
 
 # ------------------------------------------------
-# API ENDPOINT
+# JSON ENDPOINT
 # ------------------------------------------------
 
 @app.route("/metrics/platform", methods=["GET"])
@@ -106,17 +108,22 @@ def metrics_platform():
         headers={"Access-Control-Allow-Origin": "*"}
     )
 
+
+# ------------------------------------------------
+# FULLSCREEN PANEL ENDPOINT
+# ------------------------------------------------
+
 @app.route("/metrics/panel")
 def metrics_panel():
 
     metrics = calculate_metrics()
 
-    total = metrics.get("total_registered", 0)
-    spoke = metrics.get("spoke_24h", 0)
-    live = metrics.get("live_now", 0)
-    power = metrics.get("power_users", 0)
+    total = metrics["total_registered"]
+    spoke = metrics["spoke_24h"]
+    live = metrics["live_now"]
+    power = metrics["power_users"]
 
-    html = f"""
+    return f"""
     <html>
     <head>
     <meta http-equiv="refresh" content="30">
@@ -154,7 +161,6 @@ def metrics_panel():
             background: linear-gradient(90deg,#00f0ff,#ff00ff);
             -webkit-background-clip:text;
             -webkit-text-fill-color:transparent;
-            text-align:center;
         }}
 
         .board {{
@@ -233,8 +239,6 @@ def metrics_panel():
     </html>
     """
 
-    return html
-
 
 @app.route("/")
 def ok():
@@ -242,7 +246,7 @@ def ok():
 
 
 # ------------------------------------------------
-# RUN (RENDER COMPATIBLE)
+# LOCAL RUN
 # ------------------------------------------------
 
 if __name__ == "__main__":

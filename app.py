@@ -36,7 +36,7 @@ def fetch_rows():
 
 
 # ------------------------------------------------
-# CALCULATE METRICS (REAL-TIME)
+# CALCULATE METRICS (REAL-TIME, EVENT-BASED)
 # ------------------------------------------------
 
 def calculate_metrics():
@@ -47,8 +47,7 @@ def calculate_metrics():
     total_registered = set()
     spoke_24h = set()
     live_now = set()
-    power_users = set()
-    silent_observers = set()
+    power_counter = {}
 
     for r in rows:
 
@@ -59,31 +58,33 @@ def calculate_metrics():
         total_registered.add(uid)
 
         try:
-            ts = float(r.get("timestamp", now))
-            msgs = int(r.get("messages", 0))
+            ts = float(r.get("timestamp"))
         except:
             continue
 
         age = now - ts
 
-        if age <= 86400 and msgs > 0:
+        # Spoke in last 24 hours
+        if age <= 86400:
             spoke_24h.add(uid)
 
-        if age <= 60 and msgs > 0:
+        # Live right now (last 60 seconds)
+        if age <= 60:
             live_now.add(uid)
 
-        if age <= 3600 and msgs >= 20:
-            power_users.add(uid)
+        # Count messages in last hour for power users
+        if age <= 3600:
+            power_counter[uid] = power_counter.get(uid, 0) + 1
 
-        if age <= 300 and msgs == 0:
-            silent_observers.add(uid)
+    # Power users = 20+ messages in last hour
+    power_users = len([u for u, count in power_counter.items() if count >= 20])
 
     return {
         "total_registered": len(total_registered),
         "spoke_24h": len(spoke_24h),
         "live_now": len(live_now),
-        "power_users": len(power_users),
-        "silent_observers": len(silent_observers)
+        "power_users": power_users,
+        "silent_observers": 0  # cannot derive from event table
     }
 
 
@@ -100,6 +101,135 @@ def metrics_platform():
         mimetype="application/json",
         headers={"Access-Control-Allow-Origin": "*"}
     )
+
+@app.route("/metrics/panel")
+def metrics_panel():
+
+    metrics = calculate_metrics()
+
+    total = metrics.get("total_registered", 0)
+    spoke = metrics.get("spoke_24h", 0)
+    live = metrics.get("live_now", 0)
+    power = metrics.get("power_users", 0)
+
+    html = f"""
+    <html>
+    <head>
+    <meta http-equiv="refresh" content="30">
+    <style>
+
+        html, body {{
+            margin:0;
+            padding:0;
+            height:100%;
+            width:100%;
+            overflow:hidden;
+            font-family: 'Segoe UI', sans-serif;
+            background: radial-gradient(circle at center,
+                #140030 0%,
+                #0b001f 40%,
+                #000010 100%);
+            color:white;
+        }}
+
+        .container {{
+            height:100vh;
+            width:100vw;
+            display:flex;
+            flex-direction:column;
+            justify-content:space-evenly;
+            align-items:center;
+            padding:40px;
+            box-sizing:border-box;
+        }}
+
+        .title {{
+            font-size:42px;
+            letter-spacing:4px;
+            margin-bottom:10px;
+            background: linear-gradient(90deg,#00f0ff,#ff00ff);
+            -webkit-background-clip:text;
+            -webkit-text-fill-color:transparent;
+            text-align:center;
+        }}
+
+        .board {{
+            width:90%;
+            max-width:1200px;
+            height:85%;
+            display:flex;
+            flex-direction:column;
+            justify-content:space-evenly;
+        }}
+
+        .card {{
+            flex:1;
+            margin:15px 0;
+            background:rgba(25,25,60,0.6);
+            backdrop-filter:blur(12px);
+            border-radius:24px;
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+            align-items:center;
+            box-shadow:
+                0 0 30px rgba(0,255,255,0.25),
+                0 0 60px rgba(255,0,255,0.2);
+        }}
+
+        .label {{
+            font-size:22px;
+            letter-spacing:2px;
+            opacity:0.7;
+            margin-bottom:15px;
+        }}
+
+        .value {{
+            font-size:72px;
+            font-weight:700;
+            background:linear-gradient(90deg,#00f0ff,#ff00ff);
+            -webkit-background-clip:text;
+            -webkit-text-fill-color:transparent;
+            text-shadow:0 0 25px rgba(0,255,255,0.4);
+        }}
+
+    </style>
+    </head>
+
+    <body>
+        <div class="container">
+
+            <div class="title">📊 PLATFORM METRICS</div>
+
+            <div class="board">
+
+                <div class="card">
+                    <div class="label">TOTAL REGISTERED</div>
+                    <div class="value">{total}</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">SPOKE LAST 24 HOURS</div>
+                    <div class="value">{spoke}</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">LIVE RIGHT NOW</div>
+                    <div class="value">{live}</div>
+                </div>
+
+                <div class="card">
+                    <div class="label">POWER USERS (1H)</div>
+                    <div class="value">{power}</div>
+                </div>
+
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    return html
 
 
 @app.route("/")

@@ -6,63 +6,110 @@ import json
 import re
 
 app = Flask(__name__)
-GOOGLE_FEED = os.environ["GOOGLE_PROFILES_FEED"]
+
+GOOGLE_PROFILES_FEED = os.environ["GOOGLE_PROFILES_FEED"]
+
+
+# ------------------------------------------------
+# FETCH GOOGLE SHEET
+# ------------------------------------------------
 
 def fetch_rows():
-    r = requests.get(GOOGLE_FEED, timeout=20)
-    m = re.search(r"setResponse\((\{.*\})\)", r.text, re.S)
-    payload = json.loads(m.group(1))
+    r = requests.get(GOOGLE_PROFILES_FEED, timeout=20)
+
+    match = re.search(r"setResponse\((\{.*\})\)", r.text, re.S)
+    if not match:
+        return []
+
+    payload = json.loads(match.group(1))
 
     cols = [c["label"] for c in payload["table"]["cols"]]
     rows = []
 
     for row in payload["table"]["rows"]:
-        rec = {}
+        record = {}
         for i, cell in enumerate(row["c"]):
-            rec[cols[i]] = cell["v"] if cell else 0
-        rows.append(rec)
+            record[cols[i]] = cell["v"] if cell else 0
+        rows.append(record)
 
     return rows
+
+
+# ------------------------------------------------
+# CALCULATE METRICS (REAL-TIME)
+# ------------------------------------------------
 
 def calculate_metrics():
 
     rows = fetch_rows()
     now = time.time()
 
-    total = set()
-    spoke_24 = set()
-    live = set()
+    total_registered = set()
+    spoke_24h = set()
+    live_now = set()
+    power_users = set()
+    silent_observers = set()
 
     for r in rows:
+
         uid = r.get("avatar_uuid")
         if not uid:
             continue
 
-        total.add(uid)
+        total_registered.add(uid)
 
-        ts = float(r.get("timestamp", now))
-        msgs = int(r.get("messages", 0))
+        try:
+            ts = float(r.get("timestamp", now))
+            msgs = int(r.get("messages", 0))
+        except:
+            continue
+
         age = now - ts
 
         if age <= 86400 and msgs > 0:
-            spoke_24.add(uid)
+            spoke_24h.add(uid)
 
         if age <= 60 and msgs > 0:
-            live.add(uid)
+            live_now.add(uid)
+
+        if age <= 3600 and msgs >= 20:
+            power_users.add(uid)
+
+        if age <= 300 and msgs == 0:
+            silent_observers.add(uid)
 
     return {
-        "total_registered": len(total),
-        "spoke_24h": len(spoke_24),
-        "live_now": len(live)
+        "total_registered": len(total_registered),
+        "spoke_24h": len(spoke_24h),
+        "live_now": len(live_now),
+        "power_users": len(power_users),
+        "silent_observers": len(silent_observers)
     }
 
-@app.route("/metrics/platform")
-def metrics():
+
+# ------------------------------------------------
+# API ENDPOINT
+# ------------------------------------------------
+
+@app.route("/metrics/platform", methods=["GET"])
+def metrics_platform():
+    metrics = calculate_metrics()
+
     return Response(
-        json.dumps(calculate_metrics()),
+        json.dumps(metrics),
         mimetype="application/json",
         headers={"Access-Control-Allow-Origin": "*"}
     )
+
+
+@app.route("/")
+def ok():
+    return "SOCIAL METRICS LIVE", 200
+
+
+# ------------------------------------------------
+# RUN (RENDER COMPATIBLE)
+# ------------------------------------------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

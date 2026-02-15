@@ -59,12 +59,17 @@ def calculate_metrics():
 
         try:
             ts = float(r.get("timestamp"))
+
+            # Convert ms → seconds if needed
+            if ts > 9999999999:
+                ts = ts / 1000
+
         except:
             continue
 
         age = now - ts
 
-        # Spoke in last 24 hours
+        # Spoke last 24 hours
         if age <= 86400:
             spoke_24h.add(uid)
 
@@ -72,11 +77,10 @@ def calculate_metrics():
         if age <= 60:
             live_now.add(uid)
 
-        # Count messages in last hour for power users
+        # Power users (20+ messages last hour)
         if age <= 3600:
             power_counter[uid] = power_counter.get(uid, 0) + 1
 
-    # Power users = 20+ messages in last hour
     power_users = len([u for u, count in power_counter.items() if count >= 20])
 
     return {
@@ -84,7 +88,7 @@ def calculate_metrics():
         "spoke_24h": len(spoke_24h),
         "live_now": len(live_now),
         "power_users": power_users,
-        "silent_observers": 0  # cannot derive from event table
+        "silent_observers": 0
     }
 
 

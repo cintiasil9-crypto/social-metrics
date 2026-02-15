@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: social-metrics
+    runtime: python
+    plan: free   # change to starter if you want always-on
+
+    buildCommand: "pip install -r requirements.txt"
+
+    startCommand: "gunicorn app:app"
+
+    envVars:
+      - key: GOOGLE_PROFILES_FEED
+        sync: false
